@@ -622,19 +622,22 @@ hdmi_force_hotplug=1
 # it out from under the FreeBSD driver's compatible string. Add them one at a
 # time, each with a boot that proves it.
 #
-# nextbsd-fkms is ours, and meets that bar (nextbsd#429). It does not rename or
-# reparent anything -- it flips one node's status from "disabled" to "okay":
+# nextbsd-fkms is deliberately NOT enabled. It brings up the firmware-KMS node,
+# which VideoCoreKMS.kext binds -- and firmware KMS cannot program a plane on
+# 2712, because the firmware does not service SET_PLANE
+# (nextbsd-kernel-extensions#48, measured). No planes means no hardware cursor.
 #
-#   ofwbus0: <firmwarekms> irq 12 disabled compat raspberrypi,rpi-firmware-kms-2712 (no driver attached)
+# VideoCore6KMS.kext drives the same display directly and does not need that
+# node. The two must never both be loaded, since they drive the same hardware,
+# so leaving the node disabled removes the way to get that wrong.
 #
-# is what a Pi 5 reports without it, with VideoCoreKMS.kext installed and
-# loadable but unable to bind. Proven by a boot on a Pi 500+: with the overlay
-# staged, the node comes up enabled, the kext attaches, /dev/dri/card0 appears
-# and vblank is delivered.
+# Verified on a Pi 500+ with this overlay disabled: VideoCore6KMS binds, EDID
+# reads over the firmware mailbox, the connector reports the attached panel by
+# name, and a modeset at its native 2560x1440@60 puts an image on screen with
+# no errors.
 #
-# Costs nothing on a board without the node -- an overlay whose target is
-# absent is a no-op.
-dtoverlay=nextbsd-fkms
+# The overlay file still ships, so re-enabling it is a one-line change for
+# anyone who wants to compare the two drivers.
 
 # nextbsd-v3d enables v3d@2000000, which also ships disabled. Measured on a Pi
 # 500+: the node comes up with the "disabled" gone and IRQs 70/71 resolved, and
