@@ -105,7 +105,7 @@ expect {
 send "mount | grep ' / '\r"
 expect {
     timeout { puts "\nWARN: mount produced no output" }
-    -re "ufs" { puts "\nOK: ROOT-IS-UFS — / is a ufs mount" }
+    -re { on / \((ufs[^)]*)\)} { puts "\nOK: ROOT-IS-UFS — / is a ufs mount ($expect_out(1,string))" }
     -re {[#%$] $} { }
 }
 send "halt -p\r"
@@ -122,9 +122,27 @@ echo "==> verdict"
 # The OK `puts` lines go to expect's stdout, not the serial transcript ($LOG).
 # Assert against the getty login prompt in the transcript (launchd PID 1 reached
 # getty on the installed image).
-if grep -q "login:" "$LOG"; then
-    echo "PASS: $ARCH disk image booted — launchd reached the login prompt on a UFS root"
-    exit 0
+if ! grep -q "login:" "$LOG"; then
+    echo "FAIL: $ARCH disk image did not reach the login prompt (rc=$rc)"
+    exit 1
 fi
-echo "FAIL: $ARCH disk image did not reach the login prompt (rc=$rc)"
-exit 1
+# / must carry noatime from launchd's own remount (nextbsd-userland#185), not
+# from an fstab root line: the overlay stops shipping fstab
+# (nextbsd-overlays#5). Matched on the serial transcript, where the whole
+# "on / (...)" line is intact.
+if ! grep -aqE ' on / \(ufs, local, noatime' "$LOG"; then
+    echo "FAIL: ROOT-NOATIME -- / is mounted without noatime"
+    grep -aE ' on / \(' "$LOG" | tail -2
+    exit 1
+fi
+echo "OK: ROOT-NOATIME"
+# launchctl's boot-time `mount -vat nonfs` must never touch / (#467). The
+# overlay ships no fstab (nextbsd-overlays#5), so the step is skipped; the
+# fwexec half also catches any other failed mount -a.
+if grep -aE 'Cannot union mount root filesystem|fwexec\(mount_tool' "$LOG"; then
+    echo "FAIL: FSTAB-ROOT-REMOUNT -- launchctl mount -a failed or tried to remount / (#467)"
+    exit 1
+fi
+echo "OK: FSTAB-ROOT-QUIET"
+echo "PASS: $ARCH disk image booted — launchd reached the login prompt on a UFS root"
+exit 0
